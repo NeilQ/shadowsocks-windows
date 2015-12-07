@@ -8,6 +8,9 @@ using System.Text;
 
 namespace Shadowsocks.Controller
 {
+    /// <summary>
+    /// 监听器， 监听客户端tcp/udp socket端口，并将接收到的数据和相应连接socket交与service处理
+    /// </summary>
     public class Listener
     {
         public interface Service
@@ -23,8 +26,8 @@ namespace Shadowsocks.Controller
 
         Configuration _config;
         bool _shareOverLAN;
-        Socket _tcpSocket;
-        Socket _udpSocket;
+        Socket _tcpSocket;  //用于侦听客户端的tcp连接
+        Socket _udpSocket;  //用于侦听客户点的udp链接
         IList<Service> _services;
 
         public Listener(IList<Service> services)
@@ -60,15 +63,18 @@ namespace Shadowsocks.Controller
                 // Create a TCP/IP socket.
                 _tcpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
                 _udpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                // 设置为接收所有的socket数据包
                 _tcpSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
                 _udpSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
                 IPEndPoint localEndPoint = null;
                 if (_shareOverLAN)
                 {
+                    // 将绑定所有网络接口地址发出的请求，0.0.0.0
                     localEndPoint = new IPEndPoint(IPAddress.Any, _config.localPort);
                 }
                 else
                 {
+                    // 将只绑定环回地址发出的请求 127.0.0.1
                     localEndPoint = new IPEndPoint(IPAddress.Loopback, _config.localPort);
                 }
 
@@ -78,10 +84,13 @@ namespace Shadowsocks.Controller
                 _tcpSocket.Listen(1024);
 
                 // Start an asynchronous socket to listen for connections.
+                // 开始监听客户端socket请求
                 Console.WriteLine("Shadowsocks started");
                 _tcpSocket.BeginAccept(
                     new AsyncCallback(AcceptCallback),
                     _tcpSocket);
+
+                // 开始接收数据(udp socket不需要连接确认，直接接收数据)
                 UDPState udpState = new UDPState();
                 _udpSocket.BeginReceiveFrom(udpState.buffer, 0, udpState.buffer.Length, 0, ref udpState.remoteEndPoint, new AsyncCallback(RecvFromCallback), udpState);
             }
@@ -106,6 +115,9 @@ namespace Shadowsocks.Controller
             }
         }
 
+        // udp socket收到数据后的回调方法
+        // 将收到的数据与udp socket交给service处理
+        // 任意service处理成功即返回
         public void RecvFromCallback(IAsyncResult ar)
         {
             UDPState state = (UDPState)ar.AsyncState;
@@ -130,6 +142,7 @@ namespace Shadowsocks.Controller
             {
                 try
                 {
+                    // 继续接收数据
                     _udpSocket.BeginReceiveFrom(state.buffer, 0, state.buffer.Length, 0, ref state.remoteEndPoint, new AsyncCallback(RecvFromCallback), state);
                 }
                 catch (ObjectDisposedException)
@@ -142,11 +155,15 @@ namespace Shadowsocks.Controller
             }
         }
 
+        // tcp socket收到连接后的回调方法
+        // 收到连接后交给其回调方法处理
+        // 然后继续监听连接
         public void AcceptCallback(IAsyncResult ar)
         {
             Socket listener = (Socket)ar.AsyncState;
             try
             {
+                // 处理与客户端连接的socket
                 Socket conn = listener.EndAccept(ar);
 
                 byte[] buf = new byte[4096];
@@ -155,6 +172,7 @@ namespace Shadowsocks.Controller
                     buf
                 };
 
+                // 开始从客户段接收数据
                 conn.BeginReceive(buf, 0, buf.Length, 0,
                     new AsyncCallback(ReceiveCallback), state);
             }
@@ -169,6 +187,7 @@ namespace Shadowsocks.Controller
             {
                 try
                 {
+                    // 继续侦听socket请求
                     listener.BeginAccept(
                         new AsyncCallback(AcceptCallback),
                         listener);
@@ -184,6 +203,9 @@ namespace Shadowsocks.Controller
             }
         }
 
+        // 与客户端连接的socket, 收到客户端数据后的回调方法
+        // 将接受到的数据与socket交与service处理,任意service处理成功即返回
+        // service处理失败则关闭连接
         private void ReceiveCallback(IAsyncResult ar)
         {
             object[] state = (object[])ar.AsyncState;
