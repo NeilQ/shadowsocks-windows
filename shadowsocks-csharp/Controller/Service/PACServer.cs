@@ -12,6 +12,9 @@ using System.Text;
 
 namespace Shadowsocks.Controller
 {
+    /// <summary>
+    /// 客户端本地的pac文件服务器，用于pac文件的http请求
+    /// </summary>
     class PACServer : Listener.Service
     {
         public static string PAC_FILE = "pac.txt";
@@ -33,6 +36,8 @@ namespace Shadowsocks.Controller
             this._config = config;
         }
 
+        //处理客户端发送的tcp数据,正常情况下为http请求数据
+        //如果主机头是本地地址（127.0.0.1），并且数据中包含“pac”(硬编码)，则返回pac文件
         public bool Handle(byte[] firstPacket, int length, Socket socket, object state)
         {
             if (socket.ProtocolType != ProtocolType.Tcp)
@@ -46,7 +51,7 @@ namespace Shadowsocks.Controller
                 bool hostMatch = false, pathMatch = false, useSocks = false;
                 foreach (string line in lines)
                 {
-                    string[] kv = line.Split(new char[]{':'}, 2);
+                    string[] kv = line.Split(new char[] { ':' }, 2);
                     if (kv.Length == 2)
                     {
                         if (kv[0] == "Host")
@@ -86,6 +91,7 @@ namespace Shadowsocks.Controller
             }
         }
 
+        #region 确保pac文件与user_rule文件在已缓存到客户端本地
         public string TouchPACFile()
         {
             if (File.Exists(PAC_FILE))
@@ -111,6 +117,7 @@ namespace Shadowsocks.Controller
                 return USER_RULE_FILE;
             }
         }
+        #endregion
 
         private string GetPACContent()
         {
@@ -124,6 +131,7 @@ namespace Shadowsocks.Controller
             }
         }
 
+        #region 向客户端发送包含了pac文件的http响应数据, 然后关闭连接socket
         public void SendResponse(byte[] firstPacket, int length, Socket socket, bool useSocks)
         {
             try
@@ -134,7 +142,7 @@ namespace Shadowsocks.Controller
 
                 string proxy = GetPACAddress(firstPacket, length, localEndPoint, useSocks);
 
-                pac = pac.Replace("__PROXY__", proxy);
+                pac = pac.Replace("__PROXY__", proxy);  // 将pac文件中的"__PROXY__"字符串替换为代理地址
 
                 string text = String.Format(@"HTTP/1.1 200 OK
 Server: Shadowsocks
@@ -164,7 +172,9 @@ Connection: Close
             catch
             { }
         }
+        #endregion
 
+        #region 监听本地pac文件，发生变动即触发PACFileChanged事件
         private void WatchPacFile()
         {
             if (watcher != null)
@@ -188,6 +198,7 @@ Connection: Close
                 PACFileChanged(this, new EventArgs());
             }
         }
+        #endregion
 
         private string GetPACAddress(byte[] requestBuf, int length, IPEndPoint localEndPoint, bool useSocks)
         {
@@ -204,6 +215,8 @@ Connection: Close
             //{
             //    Console.WriteLine(e);
             //}
+            // PROXY 127.0.0.1:1081
+            // SOCKS5 127.0.0.1:1081
             return (useSocks ? "SOCKS5 " : "PROXY ") + localEndPoint.Address + ":" + this._config.localPort + ";";
         }
     }
