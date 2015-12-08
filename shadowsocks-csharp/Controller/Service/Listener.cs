@@ -90,7 +90,7 @@ namespace Shadowsocks.Controller
                     new AsyncCallback(AcceptCallback),
                     _tcpSocket);
 
-                // 开始接收数据(udp socket不需要连接确认，直接接收数据)
+                // 开始接收数据(udp socket不需要连接确认，直接接收数据）
                 UDPState udpState = new UDPState();
                 _udpSocket.BeginReceiveFrom(udpState.buffer, 0, udpState.buffer.Length, 0, ref udpState.remoteEndPoint, new AsyncCallback(RecvFromCallback), udpState);
             }

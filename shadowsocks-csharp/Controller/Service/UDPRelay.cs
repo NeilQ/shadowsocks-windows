@@ -10,6 +10,9 @@ using Shadowsocks.Controller.Strategy;
 
 namespace Shadowsocks.Controller
 {
+    /// <summary>
+    /// udp socket转发，实现本地与ss服务器的udp数据隧道逻辑
+    /// </summary>
     class UDPRelay : Listener.Service
     {
         private ShadowsocksController _controller;
@@ -45,14 +48,14 @@ namespace Shadowsocks.Controller
 
         public class UDPHandler
         {
-            private Socket _local;
-            private Socket _remote;
+            private Socket _local;  // 与客户端本地交互的udp socket
+            private Socket _remote; // 与ss服务器交互的udp socket
 
-            private Server _server;
+            private Server _server; // ss服务器信息
             private byte[] _buffer = new byte[1500];
 
-            private IPEndPoint _localEndPoint;
-            private IPEndPoint _remoteEndPoint;
+            private IPEndPoint _localEndPoint;  // 客户端本地ip：端口(发起这个socket请求的端，并非127.0.0.1:1080)
+            private IPEndPoint _remoteEndPoint;  // ss服务器ip：端口
 
             public UDPHandler(Socket local, Server server, IPEndPoint localEndPoint)
             {
@@ -61,6 +64,7 @@ namespace Shadowsocks.Controller
                 _localEndPoint = localEndPoint;
 
                 // TODO async resolving
+                // 解析ss服务器ip地址
                 IPAddress ipAddress;
                 bool parsed = IPAddress.TryParse(server.server, out ipAddress);
                 if (!parsed)
@@ -72,23 +76,88 @@ namespace Shadowsocks.Controller
                 _remote = new Socket(_remoteEndPoint.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
 
             }
+
+            /// <summary>
+            /// 处理数据,并发送给ss服务器
+            /// </summary>
+            /// <param name="data"></param>
+            /// <param name="length"></param>
             public void Send(byte[] data, int length)
             {
+                /*
+                +----+------+------+----------+----------+----------+
+                |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
+                +----+------+------+----------+----------+----------+
+                | 2  |  1   |  1   | Variable |    2     | Variable |
+                +----+------+------+----------+----------+----------+
+
+                trim => (去掉前三位，猜测是无用信息，减小数据大小/网络开销)
+
+                +------+----------+----------+----------+
+                | ATYP | DST.ADDR | DST.PORT |   DATA   |
+                +------+----------+----------+----------+
+                |  1   | Variable |    2     | Variable |
+                +------+----------+----------+----------+
+
+                encrypt => (加密)
+
+                +-------+--------------+
+                |   IV  |    PAYLOAD   |
+                +-------+--------------+
+                | Fixed |   Variable   |
+                +-------+--------------+
+                */
+
                 IEncryptor encryptor = EncryptorFactory.GetEncryptor(_server.method, _server.password);
+                // 去掉前三个字节
                 byte[] dataIn = new byte[length - 3];
                 Array.Copy(data, 3, dataIn, 0, length - 3);
                 byte[] dataOut = new byte[length - 3 + 16];
                 int outlen;
+                // 加密
                 encryptor.Encrypt(dataIn, dataIn.Length, dataOut, out outlen);
+                // 发送给ss服务器
                 _remote.SendTo(dataOut, _remoteEndPoint);
             }
+
+            /// <summary>
+            /// 从ss服务器待接收数据
+            /// </summary>
             public void Receive()
             {
+                // 数据来源
                 EndPoint remoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
                 _remote.BeginReceiveFrom(_buffer, 0, _buffer.Length, 0, ref remoteEndPoint, new AsyncCallback(RecvFromCallback), null);
             }
+
+            /// <summary>
+            /// 从ss服务器接收数据后的回调方法，
+            /// 接收数据后, 发送回客户端的udp socket
+            /// </summary>
+            /// <param name="ar"></param>
             public void RecvFromCallback(IAsyncResult ar)
             {
+                /*
+                +-------+--------------+
+                |   IV  |    PAYLOAD   |
+                +-------+--------------+
+                | Fixed |   Variable   |
+                +-------+--------------+
+                ->decrypt 解密
+
+                +------+----------+----------+----------+
+                | ATYP | DST.ADDR | DST.PORT |   DATA   |
+                +------+----------+----------+----------+
+                |  1   | Variable |    2     | Variable |
+                +------+----------+----------+----------+
+                ->add 包装协议内容
+
+                +----+------+------+----------+----------+----------+
+                |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
+                +----+------+------+----------+----------+----------+
+                | 2  |  1   |  1   | Variable |    2     | Variable |
+                +----+------+------+----------+----------+----------+
+                */
                 try
                 {
                     EndPoint remoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
@@ -97,13 +166,18 @@ namespace Shadowsocks.Controller
                     byte[] dataOut = new byte[bytesRead];
                     int outlen;
 
+                    // 解密
                     IEncryptor encryptor = EncryptorFactory.GetEncryptor(_server.method, _server.password);
                     encryptor.Decrypt(_buffer, bytesRead, dataOut, out outlen);
 
+                    // 包装socks5协议
                     byte[] sendBuf = new byte[outlen + 3];
                     Array.Copy(dataOut, 0, sendBuf, 3, outlen);
 
+                    // 将数据转发给客户端socket
                     _local.SendTo(sendBuf, outlen + 3, 0, _localEndPoint);
+
+                    // 继续等待ss服务器的数据
                     Receive();
                 }
                 catch (ObjectDisposedException)
