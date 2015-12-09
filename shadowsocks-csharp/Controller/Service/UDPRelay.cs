@@ -10,6 +10,43 @@ using Shadowsocks.Controller.Strategy;
 
 namespace Shadowsocks.Controller
 {
+    /*
+         SOCKS5 UDP Request
+         +----+------+------+----------+----------+----------+
+         |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
+         +----+------+------+----------+----------+----------+
+         | 2  |  1   |  1   | Variable |    2     | Variable |
+         +----+------+------+----------+----------+----------+
+
+         SOCKS5 UDP Response
+         +----+------+------+----------+----------+----------+
+         |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
+         +----+------+------+----------+----------+----------+
+         | 2  |  1   |  1   | Variable |    2     | Variable |
+         +----+------+------+----------+----------+----------+
+
+         shadowsocks UDP Request (before encrypted)
+         +------+----------+----------+----------+
+         | ATYP | DST.ADDR | DST.PORT |   DATA   |
+         +------+----------+----------+----------+
+         |  1   | Variable |    2     | Variable |
+         +------+----------+----------+----------+
+
+         shadowsocks UDP Response (before encrypted)
+         +------+----------+----------+----------+
+         | ATYP | DST.ADDR | DST.PORT |   DATA   |
+         +------+----------+----------+----------+
+         |  1   | Variable |    2     | Variable |
+         +------+----------+----------+----------+
+
+         shadowsocks UDP Request and Response (after encrypted)
+         +-------+--------------+
+         |   IV  |    PAYLOAD   |
+         +-------+--------------+
+         | Fixed |   Variable   |
+         +-------+--------------+
+*/
+
     /// <summary>
     /// udp socket转发，实现本地与ss服务器的udp数据隧道逻辑
     /// </summary>
