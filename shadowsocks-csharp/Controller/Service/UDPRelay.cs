@@ -252,6 +252,11 @@ namespace Shadowsocks.Controller
 
 
     // cc by-sa 3.0 http://stackoverflow.com/a/3719378/1124054
+    /// <summary>
+    /// 最近最少使用缓存的c#实现。(Least Recently Used)
+    /// </summary>
+    /// <typeparam name="K"></typeparam>
+    /// <typeparam name="V"></typeparam>
     class LRUCache<K, V> where V : UDPRelay.UDPHandler
     {
         private int capacity;
