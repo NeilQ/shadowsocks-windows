@@ -346,7 +346,7 @@ namespace Shadowsocks.Controller
                              http请求                     转发给                           封包成socks5协议，转发给
                    browser-------------> ss socks5 代理 ----------------------> privoxy -----------------------------> ss socks5 代理
                          <--------------               <----------------------         <-----------------------------
-                                                                                           
+                         转发http响应数据                 封包成http形式数据                 将结果以socks5形式返回 
 
                 */
                 services.Add(new PortForwarder(polipoRunner.RunningPort));  //开启本地http代理服务
