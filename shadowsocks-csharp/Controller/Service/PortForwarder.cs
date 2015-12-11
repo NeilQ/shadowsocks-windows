@@ -6,6 +6,9 @@ using System.Text;
 
 namespace Shadowsocks.Controller
 {
+    /// <summary>
+    /// 端口转发服务
+    /// </summary>
     class PortForwarder : Listener.Service
     {
         int _targetPort;
@@ -29,8 +32,8 @@ namespace Shadowsocks.Controller
         {
             private byte[] _firstPacket;
             private int _firstPacketLength;
-            private Socket _local;
-            private Socket _remote;
+            private Socket _local;  //与客户端连接的tcp socket
+            private Socket _remote;     // 与转发目标端连接的tcp socket
             private bool _closed = false;
             private bool _localShutdown = false;
             private bool _remoteShutdown = false;
@@ -68,6 +71,10 @@ namespace Shadowsocks.Controller
                 }
             }
 
+            /// <summary>
+            /// 连接到目标端后的回调方法。 调用HandshakeReceive(), 向目标端转发数据
+            /// </summary>
+            /// <param name="ar"></param>
             private void ConnectCallback(IAsyncResult ar)
             {
                 if (_closed)
@@ -86,6 +93,9 @@ namespace Shadowsocks.Controller
                 }
             }
 
+            /// <summary>
+            /// 向目标端转发数据
+            /// </summary>
             private void HandshakeReceive()
             {
                 if (_closed)
@@ -94,6 +104,7 @@ namespace Shadowsocks.Controller
                 }
                 try
                 {
+                    // 向目标端转发数据
                     _remote.BeginSend(_firstPacket, 0, _firstPacketLength, 0, new AsyncCallback(StartPipe), null);
                 }
                 catch (Exception e)
@@ -103,6 +114,11 @@ namespace Shadowsocks.Controller
                 }
             }
 
+            /// <summary>
+            /// 向目标端转发数据后的回调方法。
+            /// 开始等待目标端与客户端的数据
+            /// </summary>
+            /// <param name="ar"></param>
             private void StartPipe(IAsyncResult ar)
             {
                 if (_closed)
@@ -112,8 +128,10 @@ namespace Shadowsocks.Controller
                 try
                 {
                     _remote.EndSend(ar);
+                    // 等待接收目标端数据
                     _remote.BeginReceive(remoteRecvBuffer, 0, RecvSize, 0,
                         new AsyncCallback(PipeRemoteReceiveCallback), null);
+                    // 等待接收客户端数据
                     _local.BeginReceive(connetionRecvBuffer, 0, RecvSize, 0,
                         new AsyncCallback(PipeConnectionReceiveCallback), null);
                 }
@@ -124,6 +142,11 @@ namespace Shadowsocks.Controller
                 }
             }
 
+            /// <summary>
+            /// 从目标端接收到数据后的回调方法。
+            /// 回发给客户端。
+            /// </summary>
+            /// <param name="ar"></param>
             private void PipeRemoteReceiveCallback(IAsyncResult ar)
             {
                 if (_closed)
@@ -136,6 +159,7 @@ namespace Shadowsocks.Controller
 
                     if (bytesRead > 0)
                     {
+                        // 回发给客户端
                         _local.BeginSend(remoteRecvBuffer, 0, bytesRead, 0, new AsyncCallback(PipeConnectionSendCallback), null);
                     }
                     else
@@ -153,6 +177,11 @@ namespace Shadowsocks.Controller
                 }
             }
 
+            /// <summary>
+            /// 从客户端接收到数据后的回调方法。
+            /// 转发给目标端。
+            /// </summary>
+            /// <param name="ar"></param>
             private void PipeConnectionReceiveCallback(IAsyncResult ar)
             {
                 if (_closed)
@@ -165,6 +194,7 @@ namespace Shadowsocks.Controller
 
                     if (bytesRead > 0)
                     {
+                        // 转发给目标端
                         _remote.BeginSend(connetionRecvBuffer, 0, bytesRead, 0, new AsyncCallback(PipeRemoteSendCallback), null);
                     }
                     else
@@ -181,6 +211,11 @@ namespace Shadowsocks.Controller
                 }
             }
 
+            /// <summary>
+            /// 向目标端转发数据后的回调方法。
+            /// 继续等待从客户端接收数据。
+            /// </summary>
+            /// <param name="ar"></param>
             private void PipeRemoteSendCallback(IAsyncResult ar)
             {
                 if (_closed)
@@ -200,6 +235,11 @@ namespace Shadowsocks.Controller
                 }
             }
 
+            /// <summary>
+            /// 将响应数据回发给客户端后的回调方法。
+            /// 继续等待从目标端接收数据。
+            /// </summary>
+            /// <param name="ar"></param>
             private void PipeConnectionSendCallback(IAsyncResult ar)
             {
                 if (_closed)

@@ -331,10 +331,25 @@ namespace Shadowsocks.Controller
                 TCPRelay tcpRelay = new TCPRelay(this);
                 UDPRelay udpRelay = new UDPRelay(this);
                 List<Listener.Service> services = new List<Listener.Service>();
-                services.Add(tcpRelay);
-                services.Add(udpRelay);
-                services.Add(_pacServer);
-                services.Add(new PortForwarder(polipoRunner.RunningPort));
+                services.Add(tcpRelay); // 开启本地socks5 tcp代理服务
+                services.Add(udpRelay); // 开启本地socks5 udp代理服务
+                services.Add(_pacServer);   // 开启本地pac服务器
+
+                /*
+                   这里是shadowsocks-windows能成为http代理的关键之处。:100:
+                   我们在对ss-windows设置各种代理模式时，实际上只是对系统的internet选项进行的http代理设置。
+                   我们知道，ss服务器是一个socks协议的代理，为什么对系统的http代理请求也能起作用呢？
+
+                   当ss-windows启动时，同时会启动privoxy.exe(监听8123端口，可配置)，privoxy是一个http代理，它收到http请求后，
+                   转化成socks协议的数据，再转发给ss端口，由ss访问internet，再层层向回发。
+
+                             http请求                     转发给                           封包成socks5协议，转发给
+                   browser-------------> ss socks5 代理 ----------------------> privoxy -----------------------------> ss socks5 代理
+                         <--------------               <----------------------         <-----------------------------
+                                                                                           
+
+                */
+                services.Add(new PortForwarder(polipoRunner.RunningPort));  //开启本地http代理服务
                 _listener = new Listener(services);
                 _listener.Start(_config);
             }

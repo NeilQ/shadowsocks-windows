@@ -11,6 +11,9 @@ using System.Timers;
 namespace Shadowsocks.Controller
 {
 
+    /// <summary>
+    /// tcp转发服务,实现本地与ss服务器的tcp数据隧道逻辑
+    /// </summary>
     class TCPRelay : Listener.Service
     {
         private ShadowsocksController _controller;
