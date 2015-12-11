@@ -432,9 +432,9 @@ namespace Shadowsocks.Controller
             /*
             +----+-----+-------+------+----------+----------+
             |VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
-        	+----+-----+-------+------+----------+----------+
-        	| 1  |  1  | X'00' |  1   | Variable |    2     |
-        	+----+-----+-------+------+----------+----------+
+            +----+-----+-------+------+----------+----------+
+            | 1  |  1  | X'00' |  1   | Variable |    2     |
+            +----+-----+-------+------+----------+----------+
             */
             // 本地服务器的ip 端口
             IPEndPoint endPoint = (IPEndPoint)connection.LocalEndPoint;
@@ -709,6 +709,13 @@ namespace Shadowsocks.Controller
                     // 更新ss服务器最后活动时间
                     this.lastActivity = DateTime.Now;
                     // 解密
+                    /*
+                    +----------+
+                    | Payload  |
+                    +----------+
+                    | Variable |
+                    +----------+
+                    */
                     int bytesToSend;
                     lock (decryptionLock)
                     {
@@ -767,6 +774,13 @@ namespace Shadowsocks.Controller
                 if (bytesRead > 0)
                 {
                     // 加密
+                    /*
+                    +-------+----------+
+                    |  IV   | Payload  |
+                    +-------+----------+
+                    | Fixed | Variable |
+                    +-------+----------+
+                     */
                     int bytesToSend;
                     lock (encryptionLock)
                     {
