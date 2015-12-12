@@ -317,26 +317,9 @@ namespace Shadowsocks.Controller
                 // +----+-----+-------+------+----------+----------+
                 // | 1  |  1  | X'00' |  1   | Variable |    2     |
                 // +----+-----+-------+------+----------+----------+
-                // Skip first 3 bytes
-                // :-1: no,no,no.这里是只取头三个字节，“skip first 3 bytes”意为"跳过前三个字节"、“忽略前三个字节”,与代码表达的意思不符
-                // "Retrive the top 3 bytes" 更恰当
-                /*
-                VER 是 SOCKS 版本，这里应该是 0x05；
-                CMD 是SOCK的命令码
-                    0x01 表示CONNECT请求
-                    0x02 表示BIND请求
-                    0x03 表示 UDP 转发
-                RSV 0x00，保留
-                ATYP DST ADDR 类型
-                    0x01 IPv4地址，DST ADDR 部分4字节长度
-                    0x03 域名，DST ADDR 部分第一个字节为域名长度，DST ADDR 剩余的内容为域名，没有 \0 结尾。
-                    0x04 IPv6地址，16个字节长度。
-                DST ADDR 目的地址
-                DST PROT 网络字节序表示的目的端口
-                */
+                // Retrive the top 3 bytes
                 // TODO validate
                 Logging.Debug($"======Receive Local Port, size:" + 3);
-                // 等待从客户端接收请求数据,并只取前三个字节
                 connection.BeginReceive(connetionRecvBuffer, 0, 3, 0,
                     new AsyncCallback(handshakeReceive2Callback), null);
             }
