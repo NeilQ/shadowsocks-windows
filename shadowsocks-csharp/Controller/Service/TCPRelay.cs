@@ -119,7 +119,8 @@ namespace Shadowsocks.Controller
         private int _firstPacketLength;
         // Size of receive buffer.
         public const int RecvSize = 8192;
-        public const int BufferSize = RecvSize + 32;
+        public const int RecvReserveSize = IVEncryptor.ONETIMEAUTH_BYTES + IVEncryptor.AUTH_BYTES; // reserve for one-time auth
+        public const int BufferSize = RecvSize + RecvReserveSize + 32;
 
         // ss服务器流量统计字段
         private int totalRead = 0;
@@ -127,11 +128,11 @@ namespace Shadowsocks.Controller
 
         // 交互过程中的各种数据包容器
         // remote receive buffer
-        private byte[] remoteRecvBuffer = new byte[RecvSize];
+        private byte[] remoteRecvBuffer = new byte[BufferSize];
         // remote send buffer
         private byte[] remoteSendBuffer = new byte[BufferSize];
         // connection receive buffer
-        private byte[] connetionRecvBuffer = new byte[RecvSize];
+        private byte[] connetionRecvBuffer = new byte[BufferSize];
         // connection send buffer
         private byte[] connetionSendBuffer = new byte[BufferSize];
         // Received data string.
@@ -155,7 +156,7 @@ namespace Shadowsocks.Controller
             {
                 throw new ArgumentException("No server configured");
             }
-            this.encryptor = EncryptorFactory.GetEncryptor(server.method, server.password);
+            this.encryptor = EncryptorFactory.GetEncryptor(server.method, server.password, server.auth, false);
             this.server = server;
         }
 
@@ -282,6 +283,7 @@ namespace Shadowsocks.Controller
                         Console.WriteLine("socks 5 protocol error");
                     }
                     // 向客户端应答
+                    Logging.Debug($"======Send Local Port, size:" + response.Length);
                     connection.BeginSend(response, 0, response.Length, 0, new AsyncCallback(HandshakeSendCallback), null);
                 }
                 else
@@ -315,7 +317,7 @@ namespace Shadowsocks.Controller
                 // +----+-----+-------+------+----------+----------+
                 // | 1  |  1  | X'00' |  1   | Variable |    2     |
                 // +----+-----+-------+------+----------+----------+
-                // Skip first 3 bytes             
+                // Skip first 3 bytes
                 // :-1: no,no,no.这里是只取头三个字节，“skip first 3 bytes”意为"跳过前三个字节"、“忽略前三个字节”,与代码表达的意思不符
                 // "Retrive the top 3 bytes" 更恰当
                 /*
@@ -333,6 +335,7 @@ namespace Shadowsocks.Controller
                 DST PROT 网络字节序表示的目的端口
                 */
                 // TODO validate
+                Logging.Debug($"======Receive Local Port, size:" + 3);
                 // 等待从客户端接收请求数据,并只取前三个字节
                 connection.BeginReceive(connetionRecvBuffer, 0, 3, 0,
                     new AsyncCallback(handshakeReceive2Callback), null);
@@ -401,6 +404,7 @@ namespace Shadowsocks.Controller
                     if (command == 1)
                     {
                         byte[] response = { 5, 0, 0, 1, 0, 0, 0, 0, 0, 0 }; // 表示请求成功
+                        Logging.Debug($"======Send Local Port, size:" + response.Length);
                         // 发送请求应答
                         connection.BeginSend(response, 0, response.Length, 0, new AsyncCallback(ResponseCallback), null);
                     }
@@ -458,6 +462,7 @@ namespace Shadowsocks.Controller
             response[response.Length - 1] = (byte)(port & 0xFF);
             response[response.Length - 2] = (byte)((port >> 8) & 0xFF);
             // 向客户端应答，表示建立起连接
+            Logging.Debug($"======Send Local Port, size:" + response.Length);
             connection.BeginSend(response, 0, response.Length, 0, new AsyncCallback(ReadAll), true);
         }
 
@@ -472,6 +477,7 @@ namespace Shadowsocks.Controller
                 if (ar.AsyncState != null)
                 {
                     connection.EndSend(ar);
+                    Logging.Debug($"======Receive Local Port, size:" + RecvSize);
                     connection.BeginReceive(connetionRecvBuffer, 0, RecvSize, 0,
                         new AsyncCallback(ReadAll), null);
                 }
@@ -480,6 +486,7 @@ namespace Shadowsocks.Controller
                     int bytesRead = connection.EndReceive(ar);
                     if (bytesRead > 0)
                     {
+                        Logging.Debug($"======Receive Local Port, size:" + RecvSize);
                         connection.BeginReceive(connetionRecvBuffer, 0, RecvSize, 0,
                             new AsyncCallback(ReadAll), null);
                     }
@@ -562,6 +569,7 @@ namespace Shadowsocks.Controller
 
                 connected = false;
                 // Connect to the remote endpoint.
+                Logging.Debug($"++++++Connect Server Port");
                 // 与ss服务器连接
                 remote.BeginConnect(remoteEP,
                     new AsyncCallback(ConnectCallback), connectTimer);
@@ -674,11 +682,13 @@ namespace Shadowsocks.Controller
             }
             try
             {
+                Logging.Debug($"++++++Receive Server Port, size:" + RecvSize);
                 // 等待从ss服务器接收数据
                 remote.BeginReceive(remoteRecvBuffer, 0, RecvSize, 0,
                     new AsyncCallback(PipeRemoteReceiveCallback), null);
 
                 // 等待从客户端接收数据 (假如前面握手协商没有成功，则不会到达这里)
+                Logging.Debug($"======Receive Local Port, size:" + RecvSize);
                 connection.BeginReceive(connetionRecvBuffer, 0, RecvSize, 0,
                     new AsyncCallback(PipeConnectionReceiveCallback), null);
             }
@@ -726,6 +736,7 @@ namespace Shadowsocks.Controller
                         encryptor.Decrypt(remoteRecvBuffer, bytesRead, remoteSendBuffer, out bytesToSend);
                     }
                     // 发回给客户端
+                    Logging.Debug($"======Send Local Port, size:" + bytesToSend);
                     connection.BeginSend(remoteSendBuffer, 0, bytesToSend, 0, new AsyncCallback(PipeConnectionSendCallback), null);
 
                     IStrategy strategy = controller.GetCurrentStrategy();
@@ -791,6 +802,7 @@ namespace Shadowsocks.Controller
                         encryptor.Encrypt(connetionRecvBuffer, bytesRead, connetionSendBuffer, out bytesToSend);
                     }
                     // 转发给ss服务器
+                    Logging.Debug($"++++++Send Server Port, size:" + bytesToSend);
                     remote.BeginSend(connetionSendBuffer, 0, bytesToSend, 0, new AsyncCallback(PipeRemoteSendCallback), null);
 
                     IStrategy strategy = controller.GetCurrentStrategy();
@@ -827,6 +839,7 @@ namespace Shadowsocks.Controller
             {
                 remote.EndSend(ar);
                 // 继续等待从客户端接收数据
+                Logging.Debug($"======Receive Local Port, size:" + RecvSize);
                 connection.BeginReceive(this.connetionRecvBuffer, 0, RecvSize, 0,
                     new AsyncCallback(PipeConnectionReceiveCallback), null);
             }
@@ -851,6 +864,7 @@ namespace Shadowsocks.Controller
             {
                 connection.EndSend(ar);
                 // 继续等待从ss服务器接收数据
+                Logging.Debug($"++++++Receive Server Port, size:" + RecvSize);
                 remote.BeginReceive(this.remoteRecvBuffer, 0, RecvSize, 0,
                     new AsyncCallback(PipeRemoteReceiveCallback), null);
             }

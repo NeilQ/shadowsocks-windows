@@ -25,7 +25,9 @@ namespace Shadowsocks.Controller
         private StrategyManager _strategyManager;
         private PolipoRunner polipoRunner;
         private GFWListUpdater gfwListUpdater;
-        private AvailabilityStatistics _availabilityStatics;
+        public AvailabilityStatistics availabilityStatistics { get; private set; }
+        public StatisticsStrategyConfiguration StatisticsConfiguration { get; private set; }
+
         private bool stopped = false;
 
         private bool _systemProxyIsDirty = false;
@@ -53,9 +55,11 @@ namespace Shadowsocks.Controller
         public ShadowsocksController()
         {
             _config = Configuration.Load();
+            StatisticsConfiguration = StatisticsStrategyConfiguration.Load();
             _strategyManager = new StrategyManager(this);
             StartReleasingMemory();
         }
+
 
         public void Start()
         {
@@ -122,7 +126,13 @@ namespace Shadowsocks.Controller
         {
             _config.configs = servers;
             _config.localPort = localPort;
-            SaveConfig(_config);
+            Configuration.Save(_config);
+        }
+
+        public void SaveStrategyConfigurations(StatisticsStrategyConfiguration configuration)
+        {
+            StatisticsConfiguration = configuration;
+            StatisticsStrategyConfiguration.Save(configuration);
         }
 
         public bool AddServerBySSURL(string ssURL)
@@ -248,14 +258,12 @@ namespace Shadowsocks.Controller
             }
         }
 
-        public void ToggleAvailabilityStatistics(bool enabled)
+        public void UpdateStatisticsConfiguration(bool enabled)
         {
-            if (_availabilityStatics != null)
-            {
-                _availabilityStatics.Set(enabled);
-                _config.availabilityStatistics = enabled;
-                SaveConfig(_config);
-            }
+            if (availabilityStatistics == null) return;
+            availabilityStatistics.UpdateConfiguration(_config, StatisticsConfiguration);
+            _config.availabilityStatistics = enabled;
+            SaveConfig(_config);
         }
 
         public void SavePACUrl(string pacUrl)
@@ -280,10 +288,23 @@ namespace Shadowsocks.Controller
             }
         }
 
+        public void ToggleCheckingUpdate(bool enabled)
+        {
+            _config.autoCheckUpdate = enabled;
+            Configuration.Save(_config);
+        }
+
+        public void SaveLogViewerConfig(LogViewerConfig newConfig)
+        {
+            _config.logViewer = newConfig;
+            Configuration.Save(_config);
+        }
+
         protected void Reload()
         {
             // some logic in configuration updated the config when saving, we need to read it again
             _config = Configuration.Load();
+            StatisticsConfiguration = StatisticsStrategyConfiguration.Load();
 
             if (polipoRunner == null)
             {
@@ -302,17 +323,16 @@ namespace Shadowsocks.Controller
                 gfwListUpdater.Error += pacServer_PACUpdateError;
             }
 
+            if (availabilityStatistics == null)
+            {
+                availabilityStatistics = new AvailabilityStatistics(_config, StatisticsConfiguration);
+            }
+            availabilityStatistics.UpdateConfiguration(_config, StatisticsConfiguration);
+
             if (_listener != null)
             {
                 _listener.Stop();
             }
-
-            if (_availabilityStatics == null)
-            {
-                _availabilityStatics = new AvailabilityStatistics();
-                _availabilityStatics.UpdateConfiguration(_config);
-            }
-
             // don't put polipoRunner.Start() before pacServer.Stop()
             // or bind will fail when switching bind address from 0.0.0.0 to 127.0.0.1
             // though UseShellExecute is set to true now

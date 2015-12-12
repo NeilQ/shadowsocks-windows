@@ -144,17 +144,17 @@ namespace Shadowsocks.Controller
                 | Fixed |   Variable   |
                 +-------+--------------+
                 */
-
-                IEncryptor encryptor = EncryptorFactory.GetEncryptor(_server.method, _server.password);
                 // 去掉前三个字节
-                byte[] dataIn = new byte[length - 3];
+                IEncryptor encryptor = EncryptorFactory.GetEncryptor(_server.method, _server.password, _server.auth, true);
+                byte[] dataIn = new byte[length - 3 + IVEncryptor.ONETIMEAUTH_BYTES];
                 Array.Copy(data, 3, dataIn, 0, length - 3);
-                byte[] dataOut = new byte[length - 3 + 16];
+                byte[] dataOut = new byte[length - 3 + 16 + IVEncryptor.ONETIMEAUTH_BYTES];
                 int outlen;
                 // 加密
-                encryptor.Encrypt(dataIn, dataIn.Length, dataOut, out outlen);
+                encryptor.Encrypt(dataIn, length - 3, dataOut, out outlen);
+                Logging.Debug($"++++++Send Server Port, size:" + outlen);
                 // 发送给ss服务器
-                _remote.SendTo(dataOut, _remoteEndPoint);
+                _remote.SendTo(dataOut, outlen, SocketFlags.None, _remoteEndPoint);
             }
 
             /// <summary>
@@ -164,6 +164,7 @@ namespace Shadowsocks.Controller
             {
                 // 数据来源
                 EndPoint remoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
+                Logging.Debug($"++++++Receive Server Port, size:" + _buffer.Length);
                 _remote.BeginReceiveFrom(_buffer, 0, _buffer.Length, 0, ref remoteEndPoint, new AsyncCallback(RecvFromCallback), null);
             }
 
@@ -204,13 +205,14 @@ namespace Shadowsocks.Controller
                     int outlen;
 
                     // 解密
-                    IEncryptor encryptor = EncryptorFactory.GetEncryptor(_server.method, _server.password);
+                    IEncryptor encryptor = EncryptorFactory.GetEncryptor(_server.method, _server.password, _server.auth, true);
                     encryptor.Decrypt(_buffer, bytesRead, dataOut, out outlen);
 
                     // 包装socks5协议
                     byte[] sendBuf = new byte[outlen + 3];
                     Array.Copy(dataOut, 0, sendBuf, 3, outlen);
 
+                    Logging.Debug($"======Send Local Port, size:" + (outlen + 3));
                     // 将数据转发给客户端socket
                     _local.SendTo(sendBuf, outlen + 3, 0, _localEndPoint);
 
